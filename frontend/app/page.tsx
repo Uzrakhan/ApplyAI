@@ -50,8 +50,15 @@ export default function Home() {
       formData.append("resume", resumeFile);
       formData.append("job_description", jobDescription);
 
+      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+      if (!API_URL) {
+        throw new Error("Backend API URL is not configured.");
+      }
+
+
       const response = await fetch(
-        "http://127.0.0.1:8000/analyze-pdf",
+        `${API_URL}/analyze-pdf`,
         {
           method: "POST",
           body: formData,
