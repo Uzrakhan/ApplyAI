@@ -1,5 +1,3 @@
-import os
-
 
 from fastapi import FastAPI,UploadFile, File, Form, HTTPException
 from resume_parser import extract_text_from_pdf
@@ -19,7 +17,6 @@ from candidate_analyzer import analyze_candidate
 app = FastAPI()
 
 
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 
 #for cors
@@ -27,7 +24,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        frontend_url,
+        "https://apply-ai-ebon.vercel.app",
         ],
     allow_credentials=True,
     allow_methods=["*"],
