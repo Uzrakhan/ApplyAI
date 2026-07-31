@@ -1,9 +1,13 @@
+import os
+
+
 from fastapi import FastAPI,UploadFile, File, Form, HTTPException
 from resume_parser import extract_text_from_pdf
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai.errors import ClientError, ServerError
 from llm import analyze_application_with_llm
+
 #for cors
 
 
@@ -14,10 +18,17 @@ from candidate_analyzer import analyze_candidate
 
 app = FastAPI()
 
+
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+
 #for cors
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        frontend_url,
+        ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
