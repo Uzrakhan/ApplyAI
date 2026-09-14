@@ -127,7 +127,7 @@ export default function Hero() {
             }}
           >
             Upload your resume, paste any job description, and get a real match
-            score, an optimized resume, and a ready-to-send cover letter — in
+            score, an optimized resume, and a ready-to-send cover letter in
             under a minute.
           </p>
 
