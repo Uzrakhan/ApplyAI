@@ -22,7 +22,6 @@ import {
   Mail,
 } from "lucide-react";
 
-import JobPreferences from "./JobPreferences";
 
 type ResumeOptimization = {
   summary: string;
