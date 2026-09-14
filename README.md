@@ -2,7 +2,10 @@
 
 An AI-powered job application assistant that helps candidates understand how well their resume matches a job description and improve their application materials.
 
-# Live: https://apply-ai-ebon.vercel.app/
+
+
+##  Live: 
+https://apply-ai-ebon.vercel.app/
 
 ##  Features
 
