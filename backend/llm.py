@@ -1,30 +1,94 @@
+
 import os
 
-from google import genai
-from models import JobAnalysis, CandidateAnalysis, FullAnalysis, MatchExplanation, ResumeOptimization, CoverLetter
+from groq import Groq
 from dotenv import load_dotenv
-import time
+
+from models import (
+    JobAnalysis,
+    CandidateAnalysis,
+    FullAnalysis,
+    MatchExplanation,
+    ResumeOptimization,
+    CoverLetter,
+)
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+# -----------------------------
+# GROQ CONFIGURATION
+# -----------------------------
+
+api_key = os.getenv("GROQ_API_KEY")
 
 if not api_key:
-    raise ValueError("GEMINI_API_KEY is not configured")
+    raise ValueError("GROQ_API_KEY is not configured")
 
-client = genai.Client(api_key=api_key)
+client = Groq(api_key=api_key)
 
+MODEL = "openai/gpt-oss-120b"
+
+
+# -----------------------------
+# CORE LLM FUNCTIONS
+# -----------------------------
 
 def ask_llm(prompt):
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
     )
 
-    return response.text
+    return response.choices[0].message.content
 
+
+def generate_structured_response(prompt, response_model):
+    """
+    Generate JSON using Groq and validate it
+    against the existing Pydantic model.
+    """
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a precise AI assistant. "
+                    "Return only valid JSON. "
+                    "Do not include markdown, explanations, "
+                    "or code fences. Follow the requested structure exactly."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt + "\n\nReturn a valid JSON object."
+            }
+        ],
+        response_format={
+            "type": "json_object"
+        }
+    )
+
+    content = response.choices[0].message.content
+
+    if not content:
+        raise ValueError("Groq returned an empty response")
+
+    return response_model.model_validate_json(content)
+
+
+# -----------------------------
+# JOB ANALYSIS
+# -----------------------------
 
 def analyze_job_with_llm(job_description):
+
     prompt = f"""
     Analyze the following job description.
 
@@ -42,32 +106,28 @@ def analyze_job_with_llm(job_description):
     Rules:
 
     - If the job description clearly separates required and preferred skills,
-    return them in their respective fields.
+      return them in their respective fields.
 
     - If the job description does NOT distinguish between them,
-    place every skill into required_skills and return an empty preferred_skills list.
+      place every skill into required_skills and return an empty preferred_skills list.
 
     - If experience or location is not specified,
-    return "Not specified".
+      return "Not specified".
 
     Job Description:
 
     {job_description}
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": JobAnalysis
-        }
-    )
+    return generate_structured_response(prompt, JobAnalysis)
 
-    return JobAnalysis.model_validate_json(response.text)
 
+# -----------------------------
+# CANDIDATE ANALYSIS
+# -----------------------------
 
 def analyze_candidate_with_llm(resume_text):
+
     prompt = f"""
     Analyze the following candidate resume.
 
@@ -85,21 +145,15 @@ def analyze_candidate_with_llm(resume_text):
     {resume_text}
     """
 
-
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": CandidateAnalysis
-        }
-    )
+    return generate_structured_response(prompt, CandidateAnalysis)
 
 
-    return CandidateAnalysis.model_validate_json(response.text)
-
+# -----------------------------
+# COMPLETE APPLICATION ANALYSIS
+# -----------------------------
 
 def analyze_application_with_llm(resume_text, job_description):
+
     prompt = f"""
     Analyze this candidate resume and job description.
 
@@ -115,7 +169,7 @@ def analyze_application_with_llm(resume_text, job_description):
     Rules:
 
     - If the JD explicitly marks skills as preferred,
-    place them in preferred_skills.
+      place them in preferred_skills.
 
     - Otherwise put all skills into required_skills.
 
@@ -136,23 +190,19 @@ def analyze_application_with_llm(resume_text, job_description):
     {job_description}
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": FullAnalysis,
-        },
-    )
+    return generate_structured_response(prompt, FullAnalysis)
 
-    return FullAnalysis.model_validate_json(response.text)
 
+# -----------------------------
+# MATCH EXPLANATION
+# -----------------------------
 
 def explain_match_with_llm(
-        resume_text,
-        job_description,
-        match_score
+    resume_text,
+    job_description,
+    match_score
 ):
+
     prompt = f"""
     You are an AI career coach.
 
@@ -165,7 +215,7 @@ def explain_match_with_llm(
     {job_description}
 
     Match Score:
-    {match_score}%  
+    {match_score}%
 
     Explain the result.
 
@@ -185,25 +235,18 @@ def explain_match_with_llm(
     Recommendations must be practical.
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": MatchExplanation
-        }
-    )
-    
+    return generate_structured_response(prompt, MatchExplanation)
 
-    return MatchExplanation.model_validate_json(
-        response.text
-    )
 
+# -----------------------------
+# RESUME OPTIMIZATION
+# -----------------------------
 
 def optimize_resume_with_llm(
-        resume_text,
-        job_description
+    resume_text,
+    job_description
 ):
+
     prompt = f"""
     You are an expert technical recruiter and resume writer.
 
@@ -236,24 +279,18 @@ def optimize_resume_with_llm(
     {job_description}
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": ResumeOptimization,
-        },
-    )
+    return generate_structured_response(prompt, ResumeOptimization)
 
-    return ResumeOptimization.model_validate_json(
-        response.text
-    )
 
+# -----------------------------
+# COVER LETTER GENERATION
+# -----------------------------
 
 def generate_cover_letter_with_llm(
     resume_text,
     job_description
 ):
+
     prompt = f"""
     You are an expert technical recruiter and professional resume writer.
 
@@ -312,13 +349,4 @@ def generate_cover_letter_with_llm(
     {job_description}
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": CoverLetter,
-        },
-    )
-
-    return CoverLetter.model_validate_json(response.text)
+    return generate_structured_response(prompt, CoverLetter)

@@ -1,15 +1,18 @@
 
 import traceback
-from fastapi import FastAPI,UploadFile, File, Form, HTTPException
-from resume_parser import extract_text_from_pdf
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from google.genai.errors import ClientError, ServerError
-from llm import analyze_application_with_llm,explain_match_with_llm,optimize_resume_with_llm,generate_cover_letter_with_llm
+from groq import APIError, RateLimitError
 
-
-#for cors
-
+from resume_parser import extract_text_from_pdf
+from llm import (
+    analyze_application_with_llm,
+    explain_match_with_llm,
+    optimize_resume_with_llm,
+    generate_cover_letter_with_llm,
+)
 
 from job_analyzer import analyze_job
 from matcher import analyze_match
@@ -19,23 +22,23 @@ from candidate_analyzer import analyze_candidate
 app = FastAPI()
 
 
-
-
-#for cors
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "https://apply-ai-ebon.vercel.app",
-        ],
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
+
 
 class AnalyzeRequest(BaseModel):
     job_description: str
     resume_text: str
+
 
 class JobSearchProfileRequest(BaseModel):
     target_roles: list[str]
@@ -48,23 +51,50 @@ class JobSearchProfileRequest(BaseModel):
     excluded_keywords: list[str]
 
 
+# Shared Groq error handler
+def handle_groq_error(error: APIError):
+    print("========== GROQ API ERROR ==========")
+    print(f"Error type: {type(error).__name__}")
+    print(f"Error message: {error}")
+
+    traceback.print_exc()
+
+    if isinstance(error, RateLimitError):
+        raise HTTPException(
+            status_code=429,
+            detail="Groq API rate limit reached. Please try again later."
+        )
+
+    status_code = getattr(error, "status_code", None)
+
+    if status_code is not None and status_code >= 500:
+        raise HTTPException(
+            status_code=503,
+            detail="AI service is temporarily unavailable. Please try again."
+        )
+
+    raise HTTPException(
+        status_code=502,
+        detail="Groq API request failed."
+    )
+
+
 @app.get("/")
 def home():
     return {"message": "ApplyAI is running"}
 
+
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest):
+
     job = analyze_job(request.job_description)
-
     candidate = analyze_candidate(request.resume_text)
-
 
     match = analyze_match(
         job.required_skills,
         job.preferred_skills,
         candidate.skills
     )
-
 
     return {
         "job": job,
@@ -78,17 +108,14 @@ async def analyze_pdf(
     resume: UploadFile = File(...),
     job_description: str = Form(...)
 ):
-    # Validate PDF
+
     if resume.content_type != "application/pdf":
         raise HTTPException(
             status_code=400,
             detail="Resume must be a PDF file"
         )
 
-    # Read PDF
     file_bytes = await resume.read()
-
-    # Extract resume text
     resume_text = extract_text_from_pdf(file_bytes)
 
     if not resume_text:
@@ -100,27 +127,17 @@ async def analyze_pdf(
     stage = "resume and job analysis"
 
     try:
-        # STEP 1: Analyze resume and job description
-        print("\n========== STEP 1: CALLING GEMINI ==========")
+        print("\n========== STEP 1: GROQ ANALYSIS ==========")
 
         analysis = analyze_application_with_llm(
             resume_text,
             job_description
         )
 
-        print("STEP 1 COMPLETED: Resume analysis successful")
+        print("STEP 1 COMPLETED")
 
         job = analysis.job
         candidate = analysis.candidate
-
-        print("\n========== JOB ==========")
-        print(job)
-
-        print("\n========== CANDIDATE ==========")
-        print(candidate)
-
-        # STEP 2: Calculate match using Python
-        print("\n========== CALCULATING MATCH ==========")
 
         match = analyze_match(
             job.required_skills,
@@ -130,10 +147,9 @@ async def analyze_pdf(
 
         print("MATCH CALCULATION COMPLETED")
 
-        # STEP 3: Generate match explanation
         stage = "match explanation"
 
-        print("\n========== STEP 2: CALLING GEMINI FOR EXPLANATION ==========")
+        print("\n========== STEP 2: GROQ EXPLANATION ==========")
 
         explanation = explain_match_with_llm(
             resume_text,
@@ -141,9 +157,8 @@ async def analyze_pdf(
             match["match_score"]
         )
 
-        print("STEP 2 COMPLETED: Match explanation successful")
+        print("STEP 2 COMPLETED")
 
-        # Return response
         return {
             "job": job,
             "candidate": candidate,
@@ -151,60 +166,24 @@ async def analyze_pdf(
             "explanation": explanation
         }
 
-    except ServerError as error:
-
-        print("\n========== GEMINI SERVER ERROR ==========")
+    except APIError as error:
         print(f"Failed stage: {stage}")
-        print(f"Error type: {type(error).__name__}")
-        print(f"Error message: {error}")
-        print(f"Status code: {getattr(error, 'status_code', None)}")
+        handle_groq_error(error)
 
-        traceback.print_exc()
-
-        raise HTTPException(
-            status_code=503,
-            detail=f"Gemini service failed during {stage}."
-        )
-
-    except ClientError as error:
-
-        print("\n========== GEMINI CLIENT ERROR ==========")
-        print(f"Failed stage: {stage}")
-        print(f"Error type: {type(error).__name__}")
-        print(f"Error message: {error}")
-        print(f"Status code: {getattr(error, 'status_code', None)}")
-
-        traceback.print_exc()
-
-        status_code = getattr(error, "status_code", None)
-
-        if status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail="Gemini API quota reached. Please try again later."
-            )
-
-        raise HTTPException(
-            status_code=502,
-            detail="Gemini API request failed."
-        )
 
 @app.post("/optimize-resume")
 async def optimize_resume(
     resume: UploadFile = File(...),
     job_description: str = Form(...)
 ):
-    # Make sure the uploaded file is a PDF
+
     if resume.content_type != "application/pdf":
         raise HTTPException(
             status_code=400,
             detail="Resume must be a PDF file"
         )
 
-    # Read PDF
     file_bytes = await resume.read()
-
-    # Extract resume text
     resume_text = extract_text_from_pdf(file_bytes)
 
     if not resume_text:
@@ -214,7 +193,6 @@ async def optimize_resume(
         )
 
     try:
-        # ONE Gemini request analyzes both resume + JD
         optimization = optimize_resume_with_llm(
             resume_text,
             job_description
@@ -222,31 +200,11 @@ async def optimize_resume(
 
         print("========== OPTIMIZATION ==========")
         print(optimization)
-        print(type(optimization))
-
 
         return optimization
-        
 
-    except ServerError:
-        raise HTTPException(
-            status_code=503,
-            detail="AI service is temporarily unavailable. Please try again shortly."
-        )
-
-    except ClientError as error:
-        status_code = getattr(error, "status_code", None)
-
-        if status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail="Gemini API quota reached. Please try again later."
-            )
-
-        raise HTTPException(
-            status_code=502,
-            detail="AI service request failed."
-        )
+    except APIError as error:
+        handle_groq_error(error)
 
 
 @app.post("/generate-cover-letter")
@@ -254,6 +212,7 @@ async def generate_cover_letter(
     resume: UploadFile = File(...),
     job_description: str = Form(...)
 ):
+
     if resume.content_type != "application/pdf":
         raise HTTPException(
             status_code=400,
@@ -261,7 +220,6 @@ async def generate_cover_letter(
         )
 
     file_bytes = await resume.read()
-
     resume_text = extract_text_from_pdf(file_bytes)
 
     if not resume_text:
@@ -278,32 +236,13 @@ async def generate_cover_letter(
 
         return cover_letter
 
-    except ServerError:
-        raise HTTPException(
-            status_code=503,
-            detail="AI service is temporarily unavailable. Please try again shortly."
-        )
-
-    except ClientError as error:
-        status_code = getattr(error, "status_code", None)
-
-        if status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail="Gemini API quota reached. Please try again later."
-            )
-
-        raise HTTPException(
-            status_code=502,
-            detail="AI service request failed."
-        )
-
+    except APIError as error:
+        handle_groq_error(error)
 
 
 @app.post("/job-search-profile")
-def create_job_search_profile(
-    profile: JobSearchProfileRequest
-):
+def create_job_search_profile(profile: JobSearchProfileRequest):
+
     return {
         "message": "Job search profile saved",
         "profile": profile
