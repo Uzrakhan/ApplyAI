@@ -1,4 +1,5 @@
 
+import traceback
 from fastapi import FastAPI,UploadFile, File, Form, HTTPException
 from resume_parser import extract_text_from_pdf
 from pydantic import BaseModel
@@ -36,6 +37,16 @@ class AnalyzeRequest(BaseModel):
     job_description: str
     resume_text: str
 
+class JobSearchProfileRequest(BaseModel):
+    target_roles: list[str]
+    locations: list[str]
+    employment_types: list[str]
+    work_modes: list[str]
+    minimum_salary: int | None = None
+    experience_level: str
+    skills: list[str]
+    excluded_keywords: list[str]
+
 
 @app.get("/")
 def home():
@@ -67,7 +78,7 @@ async def analyze_pdf(
     resume: UploadFile = File(...),
     job_description: str = Form(...)
 ):
-    # Make sure the uploaded file is a PDF
+    # Validate PDF
     if resume.content_type != "application/pdf":
         raise HTTPException(
             status_code=400,
@@ -86,32 +97,43 @@ async def analyze_pdf(
             detail="Could not extract text from the PDF"
         )
 
+    stage = "resume and job analysis"
+
     try:
-        # ONE Gemini request analyzes both resume + JD
+        # STEP 1: Analyze resume and job description
+        print("\n========== STEP 1: CALLING GEMINI ==========")
+
         analysis = analyze_application_with_llm(
             resume_text,
             job_description
         )
 
-
-        print("\n==== JOB ====")
-        print(analysis.job)
-
-        print("\n===== CANDIDATE =====")
-        print(analysis.candidate)
-
-
-
+        print("STEP 1 COMPLETED: Resume analysis successful")
 
         job = analysis.job
         candidate = analysis.candidate
 
-        # Normal Python matching — no Gemini request here
+        print("\n========== JOB ==========")
+        print(job)
+
+        print("\n========== CANDIDATE ==========")
+        print(candidate)
+
+        # STEP 2: Calculate match using Python
+        print("\n========== CALCULATING MATCH ==========")
+
         match = analyze_match(
             job.required_skills,
             job.preferred_skills,
             candidate.skills
         )
+
+        print("MATCH CALCULATION COMPLETED")
+
+        # STEP 3: Generate match explanation
+        stage = "match explanation"
+
+        print("\n========== STEP 2: CALLING GEMINI FOR EXPLANATION ==========")
 
         explanation = explain_match_with_llm(
             resume_text,
@@ -119,6 +141,9 @@ async def analyze_pdf(
             match["match_score"]
         )
 
+        print("STEP 2 COMPLETED: Match explanation successful")
+
+        # Return response
         return {
             "job": job,
             "candidate": candidate,
@@ -126,13 +151,31 @@ async def analyze_pdf(
             "explanation": explanation
         }
 
-    except ServerError:
+    except ServerError as error:
+
+        print("\n========== GEMINI SERVER ERROR ==========")
+        print(f"Failed stage: {stage}")
+        print(f"Error type: {type(error).__name__}")
+        print(f"Error message: {error}")
+        print(f"Status code: {getattr(error, 'status_code', None)}")
+
+        traceback.print_exc()
+
         raise HTTPException(
             status_code=503,
-            detail="AI service is temporarily unavailable. Please try again shortly."
+            detail=f"Gemini service failed during {stage}."
         )
 
     except ClientError as error:
+
+        print("\n========== GEMINI CLIENT ERROR ==========")
+        print(f"Failed stage: {stage}")
+        print(f"Error type: {type(error).__name__}")
+        print(f"Error message: {error}")
+        print(f"Status code: {getattr(error, 'status_code', None)}")
+
+        traceback.print_exc()
+
         status_code = getattr(error, "status_code", None)
 
         if status_code == 429:
@@ -143,9 +186,8 @@ async def analyze_pdf(
 
         raise HTTPException(
             status_code=502,
-            detail="AI service request failed."
+            detail="Gemini API request failed."
         )
-
 
 @app.post("/optimize-resume")
 async def optimize_resume(
@@ -255,3 +297,14 @@ async def generate_cover_letter(
             status_code=502,
             detail="AI service request failed."
         )
+
+
+
+@app.post("/job-search-profile")
+def create_job_search_profile(
+    profile: JobSearchProfileRequest
+):
+    return {
+        "message": "Job search profile saved",
+        "profile": profile
+    }

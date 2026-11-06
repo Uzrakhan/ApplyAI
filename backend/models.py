@@ -40,3 +40,13 @@ class CoverLetter(BaseModel):
     body_paragraphs: list[str]
     closing: str
     candidate_name: str    
+
+class JobSearchProfile(BaseModel):
+    target_roles: list[str]
+    locations: list[str]
+    employment_types: list[str]
+    work_modes: list[str]
+    minimum_salary: int | None = None
+    experience_level: str
+    skills: list[str]
+    excluded_keywords: list[str]

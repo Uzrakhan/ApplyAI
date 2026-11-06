@@ -3,6 +3,7 @@ import os
 from google import genai
 from models import JobAnalysis, CandidateAnalysis, FullAnalysis, MatchExplanation, ResumeOptimization, CoverLetter
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -16,7 +17,7 @@ client = genai.Client(api_key=api_key)
 
 def ask_llm(prompt):
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt
     )
 
@@ -55,7 +56,7 @@ def analyze_job_with_llm(job_description):
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -86,7 +87,7 @@ def analyze_candidate_with_llm(resume_text):
 
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -136,7 +137,7 @@ def analyze_application_with_llm(resume_text, job_description):
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -185,7 +186,7 @@ def explain_match_with_llm(
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -236,7 +237,7 @@ def optimize_resume_with_llm(
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
@@ -312,7 +313,7 @@ def generate_cover_letter_with_llm(
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
