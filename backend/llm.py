@@ -3,6 +3,7 @@ import os
 
 from groq import Groq
 from dotenv import load_dotenv
+import json
 
 from models import (
     JobAnalysis,
@@ -47,32 +48,38 @@ def ask_llm(prompt):
     return response.choices[0].message.content
 
 
+
 def generate_structured_response(prompt, response_model):
-    """
-    Generate JSON using Groq and validate it
-    against the existing Pydantic model.
-    """
+    schema = response_model.model_json_schema()
+
+    system_prompt = f"""
+You are a structured data extraction assistant.
+
+You MUST return a valid JSON object that follows the provided schema exactly.
+
+Rules:
+- Use exactly the field names defined in the schema.
+- Do not rename, omit, or add fields.
+- Follow the required data types.
+- Fields defined as arrays must always be JSON arrays.
+- Do not return objects where arrays of strings are expected.
+- Do not return explanatory text outside the JSON object.
+- If information is unavailable, use an empty string for string fields
+  and an empty array for list fields.
+- Never invent information.
+
+Required JSON schema:
+{json.dumps(schema, indent=2)}
+"""
 
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a precise AI assistant. "
-                    "Return only valid JSON. "
-                    "Do not include markdown, explanations, "
-                    "or code fences. Follow the requested structure exactly."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt + "\n\nReturn a valid JSON object."
-            }
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
         ],
-        response_format={
-            "type": "json_object"
-        }
+        response_format={"type": "json_object"},
+        temperature=0.1
     )
 
     content = response.choices[0].message.content
@@ -80,7 +87,11 @@ def generate_structured_response(prompt, response_model):
     if not content:
         raise ValueError("Groq returned an empty response")
 
+    print(f"Groq raw response for {response_model.__name__}:")
+    print(content)
+
     return response_model.model_validate_json(content)
+    
 
 
 # -----------------------------
